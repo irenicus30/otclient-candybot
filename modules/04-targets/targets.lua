@@ -717,6 +717,7 @@ function TargetsModule.loadTargets(file, force)
         if target then TargetsModule.addTarget(target) end
       end
       UI.TargetList:focusNextChild()
+      UI.AutoTarget:setChecked(true)
       
       if not force then
         currentFileLoaded = file
