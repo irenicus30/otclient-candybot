@@ -9,31 +9,65 @@ end
 
 TargetSetting = extends(CandyConfig, "TargetSetting")
 
-TargetSetting.create = function(target, movement, stance, attack, range, equip, follow)
+TargetSetting.create = function(target, movement, stance, attack, range, equip, follow, priority)
   local setting = TargetSetting.internalCreate()
 
-  setting.movement = movement or 0
+  setting.movement = MovementSetting.create()
   setting.stance = stance or FightOffensive
-  setting.attack = attack
+  setting.attack = attack or Attack.create()
   setting.range = range or {100, 0}
   setting.equip = equip or {}
   setting.target = target
   setting.follow = follow ~= nil and follow or true
+  setting.priority = priority or 0
   setting.index = 0
   
   return setting
+end
+
+
+function TargetSetting:clone() 
+  local setting = TargetSetting.internalCreate()
+  table.merge(setting, self)
+  setting.range = {self.range[2], 0}
+  setting.movement = self.movement:clone()
+
+  if self.attack then
+    setting.attack = self.attack:clone()
+  end
+  return setting
+end
+
+function TargetSetting:getPriority()
+  return self.priority
+end
+
+function TargetSetting:setPriority(priority)
+  local oldPriority = self.priority
+  if priority ~= oldPriority then
+    self.priority = priority
+
+    signalcall(self.onPriorityChange, self, priority, oldPriority)
+  end
 end
 
 function TargetSetting:getMovement()
   return self.movement
 end
 
-function TargetSetting:setMovement(movement)
-  local oldMovement = self.movement
-  if movement ~= oldMovement then
-    self.movement = movement
+function TargetSetting:setMovementType(type)
+  if self.movement.type ~= type then 
+    self.movement.type = type
 
-    signalcall(self.onMovementChange, self, movement, oldMovement)
+    signalcall(self.onMovementChange, self, self.movement)
+  end
+end
+
+function TargetSetting:setMovementRange(range)
+  if self.movement.range ~= range then 
+    self.movement.range = range
+
+    signalcall(self.onMovementChange, self, self.movement)
   end
 end
 
@@ -157,9 +191,14 @@ function TargetSetting:toNode()
 
   node.range = self.range
   node.equip = self.equip
+  node.priority = self.priority
 
   if self.attack then
     node.attack = self.attack:toNode()
+  end
+  
+  if self.movement then
+    node.movement = self.movement:toNode()
   end
   return node
 end
@@ -171,15 +210,21 @@ function TargetSetting:parseNode(node)
 
   if node.range then
     for k,v in pairs(node.range) do
-      self.range[tonumber(k)] = v
+      self.range[tonumber(k)] = tonumber(v)
     end
   end
   if node.equip then
     self.equip = node.equip
   end
+  if node.priority then
+  	self.priority = tonumber(node.priority)
+  end
   if node.attack then
     self.attack = Attack.create()
     self.attack:parseNode(node.attack)
+  end
+  if node.movement then
+    self.movement:parseNode(node.movement)
   end
 end
 
@@ -187,13 +232,13 @@ end
 
 Target = extends(CandyConfig, "Target")
 
-Target.create = function(name, priority, settings, loot)
+Target.create = function(name, settings, loot, antiks)
   local target = Target.internalCreate()
   
   target.name = name or ""
-  target.priority = priority or 0
   target.settings = settings or {}
   target.loot = loot ~= nil and loot or true
+  target.antiks = antiks ~= nil and antiks or true
   
   return target
 end
@@ -210,19 +255,6 @@ function Target:setName(name)
     self.name = name
 
     signalcall(self.onNameChange, self, name, oldName)
-  end
-end
-
-function Target:getPriority()
-  return self.priority
-end
-
-function Target:setPriority(priority)
-  local oldPriority = self.priority
-  if priority ~= oldPriority then
-    self.priority = priority
-
-    signalcall(self.onPriorityChange, self, priority, oldPriority)
   end
 end
 
@@ -250,6 +282,30 @@ function Target:addSetting(setting)
     table.insert(self.settings, setting)
 
     signalcall(self.onAddSetting, self, setting)
+  end
+end
+
+function Target:removeSetting(setting)
+  if table.contains(self.settings, setting) then
+    local index = setting:getIndex()
+    table.remove(self.settings, index)
+    for k, v in pairs(self.settings) do
+      v:setIndex(k)
+    end
+    signalcall(self.onRemoveSetting, self, setting)
+  end
+end
+
+function Target:getAntiKS()
+  return self.antiks
+end
+
+function Target:setAntiKS(AntiKS)
+  local oldAntiKS = self.antiks
+  if AntiKS ~= oldAntiKS then
+    self.antiks = AntiKS
+
+    signalcall(self.onAntiKSChange, self, AntiKS, oldAntiKS)
   end
 end
 
@@ -297,4 +353,40 @@ function Target:parseNode(node)
       self.settings[tonumber(k)] = setting
     end
   end
+end
+
+MovementSetting = extends(CandyConfig, "MovementSetting")
+
+MovementSetting.create = function(movementType, range)
+  local movement = MovementSetting.internalCreate()
+  movement.type = tonumber(movementType) or Movement.None
+  movement.range = tonumber(range) or 4
+  
+  return movement
+end
+
+function MovementSetting:clone()
+  return MovementSetting.create(self.type, self.range)
+end
+
+function MovementSetting:toNode()
+  return CandyConfig.toNode(self)
+end
+
+
+function MovementSetting:parseNode(node)
+  CandyConfig.parseNode(self, node)
+
+  -- complex parse
+
+  self.type = tonumber(self.type)
+  self.range = tonumber(self.range)
+end
+
+function MovementSetting:getRange()
+  return self.range
+end
+
+function MovementSetting:getType() 
+  return self.type
 end

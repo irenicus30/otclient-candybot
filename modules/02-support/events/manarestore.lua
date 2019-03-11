@@ -30,7 +30,9 @@ function AutoMana.onManaChange(player, mana, maxMana, oldMana, restoreType, trie
     if player:getManaPercent() < manaValue then
       Helper.safeUseInventoryItemWith(item:getId(), player, BotModule.isPrecisionMode())
     end
-
+    if nextMana then
+    	removeEvent(nextMana)
+    end
     nextMana = scheduleEvent(function()
       local player = g_game.getLocalPlayer()
       if not player then return end
@@ -38,9 +40,11 @@ function AutoMana.onManaChange(player, mana, maxMana, oldMana, restoreType, trie
       mana, maxMana = player:getMana(), player:getMaxMana()
       if player:getManaPercent() < manaValue and tries > 0 then
         tries = tries - 1
+        nextMana = nil
         AutoMana.onManaChange(player, mana, maxMana, mana, restoreType, tries) 
       else
         removeEvent(nextMana)
+        nextMana = nil
       end
     end, delay)
   end

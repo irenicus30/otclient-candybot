@@ -4,7 +4,7 @@ Panel
   anchors.right: parent.right
   anchors.top: parent.top
   padding-right: 8
-  height: 500
+  height: 715
 
   BotOptionCheckBox
     id: AutoTarget
@@ -59,8 +59,16 @@ Panel
       anchors.left: parent.left
       anchors.top: parent.top
       margin-bottom: 5
-      width: 18
+      width: 30
       height: 19
+      @onClick: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            local newSetting = setting:getTarget():getSetting(setting:getIndex()-1)
+            if newSetting then
+              TargetsModule.setCurrentSetting(newSetting)
+            end
+          end
 
     Button
       id: NewSettingButton
@@ -71,14 +79,42 @@ Panel
       anchors.bottom: PrevSettingButton.bottom
       margin-left: 4
       margin-right: 4
+      @onClick: |
+          local target, setting = TargetsModule.getSelectedTarget(), TargetsModule.getCurrentSetting()
+          if target and setting then
+            TargetsModule.addTargetSetting(target, setting:clone())
+          end
 
     Button
       id: NextSettingButton
       !text: tr('>')
+      anchors.right: RemoveSettingButton.left
+      anchors.top: PrevSettingButton.top
+      anchors.bottom: PrevSettingButton.bottom
+      width: 30
+      margin-left: 4
+      margin-right: 4
+      @onClick: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            local newSetting = setting:getTarget():getSetting(setting:getIndex()+1)
+            if newSetting then
+              TargetsModule.setCurrentSetting(newSetting)
+            end
+          end
+
+    Button
+      id: RemoveSettingButton
+      text: x
       anchors.right: parent.right
       anchors.top: PrevSettingButton.top
       anchors.bottom: PrevSettingButton.bottom
-      width: 18
+      width: 30
+      @onClick: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            setting:getTarget():removeSetting(setting)
+          end
 
     Panel
       anchors.top: PrevSettingButton.bottom
@@ -100,6 +136,7 @@ Panel
         !text: tr('#1 of 1')
         anchors.top: TargetSettingLabel.top
         anchors.left: TargetSettingLabel.right
+        anchors.right: parent.right
         margin-left: 5
 
       Label
@@ -137,10 +174,10 @@ Panel
         buttons: false
         focusable: true
         mouse-scroll: false
-        @onTextChange: |
+        @onValueChange: |
           local setting = TargetsModule.getCurrentSetting()
           if setting then
-            setting:setRange(self:getText(), 1)
+            setting:setRange(self:getValue(), 1)
           end
 
       Label
@@ -162,18 +199,59 @@ Panel
         focusable: true
         buttons: false
         mouse-scroll: false
-        @onTextChange: |
+        @onValueChange: |
           local setting = TargetsModule.getCurrentSetting()
           if setting then
-            setting:setRange(self:getText(), 2)
+            setting:setRange(self:getValue(), 2)
+          end
+
+      Label
+        id: SettingStrategyLabel
+        !text: tr('Strategy')
+        !tooltip: tr('The strategy desired for this target.')
+        anchors.top: SettingNameEdit.bottom
+        anchors.left: SettingNameEdit.left
+        margin-top: 5
+
+      ComboBox
+        id: SettingStrategyList
+        anchors.left: prev.left
+        anchors.top: prev.bottom
+        width: 145
+        margin-top: 3
+        mouse-scroll: false
+
+      Label
+        id: SettingDangerLabel
+        !text: tr('Priority')
+        !tooltip: tr('The danger level of this targets setting.')
+        anchors.bottom: SettingDangerBox.top
+        anchors.left: SettingDangerBox.left
+        margin-bottom: 3
+
+      SpinBox
+        id: SettingDangerBox
+        anchors.top: SettingStrategyList.top
+        anchors.left: SettingStrategyList.right
+        anchors.right: parent.right
+        margin-left: 6
+        minimum: -1000000
+        maximum: 1000000
+        focusable: true
+        mouse-scroll: false
+        height: 22
+        @onValueChange: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            setting:setPriority(self:getValue())
           end
 
       Label
         id: SettingMovementLabel
         !text: tr('Movement')
         !tooltip: tr('The movement desired for this target.')
-        anchors.top: SettingNameEdit.bottom
-        anchors.left: SettingNameEdit.left
+        anchors.top: SettingStrategyList.bottom
+        anchors.left: SettingStrategyList.left
         margin-top: 5
 
       ComboBox
@@ -185,54 +263,44 @@ Panel
         mouse-scroll: false
 
       Label
-        id: SettingDangerLabel
-        !text: tr('Danger')
-        !tooltip: tr('The danger level of this targets setting.')
-        anchors.bottom: SettingDangerBox.top
-        anchors.left: SettingDangerBox.left
+        id: SettingDistanceLabel
+        !text: tr('Distance')
+        !tooltip: tr('The distance to keep from monster.')
+        anchors.bottom: SettingDistanceBox.top
+        anchors.left: SettingDistanceBox.left
         margin-bottom: 3
 
       SpinBox
-        id: SettingDangerBox
+        id: SettingDistanceBox
         anchors.top: SettingMovementList.top
         anchors.left: SettingMovementList.right
         anchors.right: parent.right
         margin-left: 6
-        minimum: 1
-        maximum: 999999999
+        minimum: 0
+        maximum: 10
         focusable: true
         mouse-scroll: false
         height: 22
-
-      Label
-        id: SettingStrategyLabel
-        !text: tr('Strategy')
-        !tooltip: tr('The strategy desired for this target.')
-        anchors.top: SettingMovementList.bottom
-        anchors.left: SettingMovementList.left
-        margin-top: 5
-
-      ComboBox
-        id: SettingStrategyList
-        anchors.left: prev.left
-        anchors.top: prev.bottom
-        anchors.right: parent.right
-        margin-top: 3
-        mouse-scroll: false
+        @onValueChange: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            setting:setMovementRange(self:getValue())
+            TargetsModule.Movement.update()
+          end
 
       Label
         id: SettingModeLabel
         !text: tr('Attack')
         !tooltip: tr('Set how we will attack the target.')
-        anchors.top: SettingStrategyList.bottom
-        anchors.left: SettingStrategyList.left
+        anchors.top: SettingMovementList.bottom
+        anchors.left: SettingMovementList.left
         margin-top: 5
 
       ComboBox
         id: SettingModeList
-        anchors.left: SettingModeLabel.left
-        anchors.right: parent.right
-        anchors.top: SettingModeLabel.bottom
+        anchors.left: prev.left
+        anchors.top: prev.bottom
+        width: 145
         margin-top: 3
         mouse-scroll: false
 
@@ -274,6 +342,35 @@ Panel
         margin-left: 10
         @onClick: Helper.startChooseItem(TargetsModule.onChooseSettingItem)
 
+
+      Label
+        id: SettingRadiusLabel
+        !text: tr('Radius')
+        anchors.bottom: SettingRadiusBox.top
+        anchors.left: SettingRadiusBox.left
+        anchors.right: parent.right
+        margin-bottom: 3
+
+      SpinBox
+        id: SettingRadiusBox
+        anchors.top: SettingModeList.top
+        anchors.left: SettingModeList.right
+        anchors.right: parent.right
+        margin-left: 6
+        minimum: 0
+        maximum: 100
+        focusable: true
+        mouse-scroll: false
+        height: 22
+        @onValueChange: |
+          local setting = TargetsModule.getCurrentSetting()
+          if setting then
+            local attack = setting:getAttack()
+            if attack then
+              attack:setRadius(self:getValue())
+            end
+          end
+
       CheckBox
         id: SettingLoot
         !text: tr('Loot')
@@ -289,16 +386,17 @@ Panel
           end
 
       CheckBox
-        id: SettingFollow
-        !text: tr('Follow')
-        !tooltip: tr('Follow this creature when targeting.')
+        id: SettingAntiKS
+        !text: tr('Anti-KS')
+        !tooltip: tr('Avoid kill stealing this monster from other players.')
+        width: 70
+        margin-left: 10
         anchors.left: SettingLoot.right
-        anchors.bottom: SettingLoot.bottom
-        width: 55
+        anchors.bottom: parent.bottom
         @onCheckChange: |
-          local setting = TargetsModule.getCurrentSetting()
-          if setting then
-            setting:setFollow(self:isChecked())
+          local target = TargetsModule.getSelectedTarget()
+          if target then
+            target:setAntiKS(self:isChecked())
           end
 
       FightOffensiveBox
@@ -329,6 +427,125 @@ Panel
     margin-top: 10
 
   Panel
+    id: LooterPanel
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.top: prev.bottom
+    height: 300
+
+    Label
+      text: Looter
+      anchors.left: parent.left
+      anchors.top: parent.top
+      margin-top: 4
+      width: 130
+
+    TextList
+      id: LootItemsList
+      anchors.top: prev.bottom
+      anchors.left: prev.left
+      anchors.bottom: parent.bottom
+      margin-bottom: 5
+      margin-top: 5
+      padding: 1
+      focusable: false
+      phantom: true
+      vertical-scrollbar: LootItemsScrollBar
+      width: 230
+
+    VerticalScrollBar
+      id: LootItemsScrollBar
+      anchors.top: LootItemsList.top
+      anchors.bottom: LootItemsList.bottom
+      anchors.left: LootItemsList.right
+      step: 14
+      pixels-scroll: true
+
+
+    Panel
+      anchors.top: parent.top
+      anchors.bottom: LootItemsList.bottom
+      anchors.left: LootItemsScrollBar.right
+      anchors.right: parent.right
+      //border-width: 1
+
+      Label
+        id: ItemCount
+        !text: tr('Count:')
+        anchors.top: parent.top
+        anchors.left: parent.left
+        margin-left: 10
+        margin-top: 5
+
+      SpinBox
+        id: ItemCountBox
+        enabled: false
+        anchors.left: prev.right
+        anchors.top: parent.top
+        anchors.right: parent.right
+        phantom: true
+        mouse-scroll: false
+        margin-top: 2
+        margin-left: 10
+        focusable: true
+        minimum: -1
+        maximum: 10000
+
+      BotOptionCheckBox
+        id: FastLooter
+        width: 90
+        !text: tr('Fast Looter')
+        !tooltip: tr('Speedup looting process a lot (unsafe)')
+        anchors.left: parent.left
+        anchors.top: prev.bottom
+        margin-left: 10
+
+      Label
+        id: BackpackLabel
+        !text: tr('BPs:')
+        anchors.top: FastLooter.bottom
+        anchors.left: parent.left
+        margin-left: 10
+        margin-top: 5
+
+      MultilineTextEdit
+        id: BackpackList
+        anchors.top: BackpackLabel.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: BackpackFastEdit.top
+        text-wrap: true
+        margin-left: 10
+        margin-top: 5
+        margin-bottom: 5
+        cursor-visible: true
+        focusable: true
+
+      ComboBox
+        id: BackpackFastEdit
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        width: 70
+        margin-left: 10
+        mouse-scroll: false
+
+      Button
+        id: ReopenBackpacksButton
+        !text: tr('Apply')
+        anchors.left: prev.right
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        margin-left: 3
+        @onClick: |
+          CandyBot.changeOption('BackpackList', TargetsModule.getUI().BackpackList:getText())
+
+  HorizontalSeparator
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.top: prev.bottom
+    margin-top: 10
+
+  Panel
     id: SaveLoadPanel
     anchors.left: parent.left
     anchors.right: parent.right
@@ -343,7 +560,7 @@ Panel
       width: 130
 
     TextList
-      id: LoadList
+      id: TargetsFile
       anchors.top: prev.bottom
       anchors.left: prev.left
       margin-bottom: 5
@@ -357,23 +574,23 @@ Panel
 
     VerticalScrollBar
       id: LoadSettingScrollBar
-      anchors.top: LoadList.top
-      anchors.bottom: LoadList.bottom
-      anchors.left: LoadList.right
+      anchors.top: TargetsFile.top
+      anchors.bottom: TargetsFile.bottom
+      anchors.left: TargetsFile.right
       step: 14
       pixels-scroll: true
 
     Button
       id: LoadButton
       !text: tr('Load Selected')
-      anchors.top: LoadList.bottom
-      anchors.left: LoadList.left
+      anchors.top: TargetsFile.bottom
+      anchors.left: TargetsFile.left
       anchors.right: LoadSettingScrollBar.right
       margin-top: 3
       enabled: false
       @onClick: |
         local parent = self:getParent()
-        local focusedChild = parent:getChildById('LoadList'):getFocusedChild()
+        local focusedChild = parent:getChildById('TargetsFile'):getFocusedChild()
         if focusedChild then
           TargetsModule.loadTargets(focusedChild:getText())
         end
@@ -405,3 +622,13 @@ Panel
         local parent = self:getParent()
         local file = parent:getChildById('SaveNameEdit'):getText()
         TargetsModule.saveTargets(file)
+
+    Button
+      id: ResetButton
+      !text: tr('Reset Targets')
+      anchors.top: prev.bottom
+      anchors.left: NewLabel.left
+      anchors.right: parent.right
+      margin-top: 8
+      @onClick: |
+        TargetsModule.clearTargetList()

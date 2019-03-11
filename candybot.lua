@@ -6,7 +6,6 @@
 
 CandyBot = extends(UIWidget, "CandyBot")
 CandyBot.window = nil
-CandyBot.options = {}
 CandyBot.defaultOptions = {
   ["LoggerType"] = 1,
   ["PrintLogs"] = false
@@ -104,7 +103,8 @@ function terminate()
 end
 
 function CandyBot.online()
-  addEvent(CandyBot.loadOptions)
+  g_game.enableFeature(GameKeepUnawareTiles)
+  CandyBot.loadOptions()
 
   -- bind keys
   g_keyboard.bindKeyDown('Ctrl+Shift+B', CandyBot.toggle)
@@ -165,10 +165,24 @@ function CandyBot.getWriteDir()
   return writeDir
 end
 
+function CandyBot.getOptions()
+  local char = g_game.getCharacterName() .. '@' .. tostring(G.host) .. '@' .. tostring(G.port)
+  return CandyBot.options and CandyBot.options[char] or CandyBot.defaultOptions
+end
+
+function CandyBot.getOption(key)
+  return CandyBot.getOptions()[key]
+end
+
 function CandyBot.loadOptions()
   local char = g_game.getCharacterName()
+  local server = tostring(G.host) .. '@' .. tostring(G.port)
 
-  if CandyBot.options[char] ~= nil then
+  if CandyBot.options[char .. '@' .. server] ~= nil then
+    for i, v in pairs(CandyBot.options[char .. '@' .. server]) do
+      addEvent(function() CandyBot.changeOption(i, v, true) end)
+    end
+  elseif CandyBot.options[char] ~= nil then
     for i, v in pairs(CandyBot.options[char]) do
       addEvent(function() CandyBot.changeOption(i, v, true) end)
     end
@@ -184,7 +198,11 @@ function CandyBot.changeOption(key, state, loading)
   if state == nil then
     return
   end
-  
+
+  if not CandyBot.options then -- bug with setting bot node to empty on loading
+    return
+  end
+
   if CandyBot.defaultOptions[key] == nil then
     CandyBot.options[key] = nil
     return
@@ -228,7 +246,7 @@ function CandyBot.changeOption(key, state, loading)
 
     Modules.notifyChange(key, state)
 
-    local char = g_game.getCharacterName()
+    local char = g_game.getCharacterName() .. '@' .. tostring(G.host) .. '@' .. tostring(G.port)
 
     if CandyBot.options[char] == nil then
       CandyBot.options[char] = {}

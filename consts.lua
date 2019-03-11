@@ -101,7 +101,9 @@ Foods = {
   ['Haunch of Boar'] = 12310,
   ['Deepling Filet'] = 14085,
   ['Soft Cheese'] = 17820,
-  ['Rat Cheese'] = 17821
+  ['Rat Cheese'] = 17821,
+  ['Meat @ Rare'] = 2666,
+  ['Ham @ Rare'] = 2671,
 }
 
 RingIds = {
@@ -146,6 +148,7 @@ Fishing = {
 
 Runes = {
   blank = 3147
+  -- blank = 2260 -- raretibia
 }
 
 Water = { 4597,4598,4599,4600,4601,4602,4635,4639,4640 }

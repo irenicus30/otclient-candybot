@@ -9,18 +9,26 @@ AutoTarget = TargetsModule.AutoTarget
 -- Variables
 
 AutoTarget.creatureData = {}
+AutoTarget.notValidTargetCount = 0
 
 -- Methods
 
 function AutoTarget.init()
-  connect(Creature, { onAppear = AutoTarget.addCreature })
+  connect(Creature, {
+    onAppear = AutoTarget.addCreature,
+    onTimedSquare = AutoTarget.onTimedSquare
+  })
   connect(TargetsModule, { onAddTarget = AutoTarget.scan })
 end
 
 function AutoTarget.terminate()
-  disconnect(Creature, { onAppear = AutoTarget.addCreature })
+  disconnect(Creature, {
+    onAppear = AutoTarget.addCreature,
+    onTimedSquare = AutoTarget.onTimedSquare
+  })
   disconnect(TargetsModule, { onAddTarget = AutoTarget.scan })
 end
+
 
 function AutoTarget.onStopped()
 
@@ -60,9 +68,10 @@ function AutoTarget.isAlreadyStored(creature)
 end
 
 function AutoTarget.addCreature(creature)
+  BotLogger.debug("AutoTarget.addCreature() called")
   -- Avoid adding new targets when attacking
   if creature and creature:isMonster() then
-    --connect(creature, { onHealthPercentChange = AutoTarget.onTargetHealthChange })
+    connect(creature, { onHealthPercentChange = AutoTarget.onTargetHealthChange })
     connect(creature, { onDeath = AutoLoot.onTargetDeath })
     connect(creature, { onDisappear = AutoTarget.removeCreature })
 
@@ -72,7 +81,7 @@ end
 
 function AutoTarget.removeCreature(creature)
   if creature then
-    --disconnect(creature, { onHealthPercentChange = AutoTarget.onTargetHealthChange })
+    disconnect(creature, { onHealthPercentChange = AutoTarget.onTargetHealthChange })
     disconnect(creature, { onDeath = AutoLoot.onTargetDeath })
     disconnect(creature, { onDisappear = AutoTarget.removeCreature })
 
@@ -80,16 +89,9 @@ function AutoTarget.removeCreature(creature)
   end
 end
 
-function AutoTarget.checkChaseMode(target)
-  if not target then return end
-  local t = TargetsModule.getTarget(target:getName())
-  if t then
-    local setting = t:getSetting(1)
-    if setting:getFollow() then
-      g_game.setChaseMode(ChaseOpponent)
-    else
-      g_game.setChaseMode(DontChase)
-    end
+function AutoTarget.onTimedSquare(creature, color)
+  if color == 0 then
+    creature.attackedUs = true
   end
 end
 
@@ -105,30 +107,81 @@ function AutoTarget.checkStance(target)
 end
 
 function AutoTarget.onTargetHealthChange(creature)
+  if creature:getHealthPercent() < 1 then
+    AutoTarget.removeCreature(creature)
+    AutoLoot.onTargetDeath(creature)
+  end
+end
 
+function AutoTarget.directionMatches(creature, player)
+  local dir, creatureDir = getDirectionFromPos(creature:getPosition(), player:getPosition()), creature:getDirection()
+  if dir < 4 then
+    return creatureDir == dir
+  end
+  return creatureDir == dir - 4 or creatureDir == dir-3 or creatureDir == dir-7
 end
 
 function AutoTarget.isValidTarget(creature)
   local player = g_game.getLocalPlayer()
-  return TargetsModule.hasTarget(creature:getName()) and player:canStandBy(creature)
+  local target = TargetsModule.getTarget(creature:getName())
+  local creaturePos = creature:getPosition()
+  if creature:getHealthPercent() < 1 or
+    not creaturePos or
+    not Position.isInRange(player:getPosition(), creaturePos, 7, 5) or
+    not target or
+    not player:canStandBy(creature, 200) then
+    return false
+  end
+  if not target:getAntiKS() or creature.attackedUs then
+    return true
+  end
+  local spec = g_map.getSpectators(creaturePos, false)
+  local dist, closest
+  local playerDist = Position.manhattanDistance(player:getPosition(), creaturePos)
+  for _, neighbor in pairs(spec) do
+    if neighbor:isPlayer() and neighbor ~= player and
+      Position.manhattanDistance(creaturePos, neighbor:getPosition()) <= playerDist and
+      (AutoTarget.directionMatches(creature, neighbor) or creature:isWalking() or neighbor:isWalking())
+    then
+      return false
+    end
+  end
+  return AutoTarget.directionMatches(creature, player)
 end
 
 function AutoTarget.getBestTarget()
   local player = g_game.getLocalPlayer()
   local playerPos = player:getPosition()
-  local target, distance = nil, nil
+  local targets, distance, priority = nil, nil, nil
 
   for id,t in pairs(AutoTarget.creatureData) do
     if t and AutoTarget.isValidTarget(t) then
-      local d = Position.distance(playerPos, t:getPosition())
-      if not target or d < distance then
-        BotLogger.debug("AutoTarget: Found closest target")
-        target = t
-        distance = d
+      local steps, result = g_map.findPath(playerPos, t:getPosition(), 200, PathFindFlags.AllowCreatures)
+      -- BotLogger.debug("findPath steps  " .. table.tostring(steps))
+      -- BotLogger.debug("findPath result " .. result)
+      if result == PathFindResults.Ok then
+        local d = #steps
+        local setting = TargetsModule.getTargetSettingCreature(t)
+        if not setting then
+          BotLogger.debug("No target setting found for monster " .. t:getName() .. ". No range for hp% ?" .. tostring(t:getHealthPercent()))
+        else
+          if not priority or setting:getPriority() > priority then
+            targets = {t}
+            distance = d
+            priority = setting:getPriority()
+          elseif setting:getPriority() == priority then
+            if d < distance then
+              distance = d
+              table.insert(targets, 1, t)
+            else
+              table.insert(targets, t)
+            end
+          end
+        end
       end
     end
   end
-  return target
+  return targets, priority
 end
 
 function AutoTarget.onStopped()
@@ -144,30 +197,41 @@ function AutoTarget.Event(event)
   -- See: https://github.com/BenDol/otclient-candybot/issues/20
 
   -- Cannot continue if still attacking or is in pz
+
+  -- Find a valid target to attack
+  local targets, priority = AutoTarget.getBestTarget()
+  if not targets then 
+    return Helper.safeDelay(200, 1000)
+  end
   local player = g_game.getLocalPlayer()
+  local target = g_game.getAttackingCreature()
   if player:hasState(PlayerStates.Pz) then
+    AutoTarget.notValidTargetCount = 0
     return Helper.safeDelay(600, 2000)
-  elseif g_game.isAttacking() then
-    local target = g_game.getAttackingCreature()
-    if not target or not AutoTarget.isValidTarget(target) then
-      g_game.cancelAttackAndFollow()
-    else
+  elseif target and target:isCreature() then
+    if not player:canStandBy(target, 200) then
+      AutoTarget.notValidTargetCount = AutoTarget.notValidTargetCount + 1
+      if not targets or AutoTarget.notValidTargetCount <= 5 then
+        return Helper.safeDelay(600, 2000)
+      end
+    elseif not TargetsModule.hasTarget(target:getName()) and not targets then
+      AutoTarget.notValidTargetCount = 0
       return Helper.safeDelay(600, 2000)
     end
   end
-
-  -- Find a valid target to attack
-  local target = AutoTarget.getBestTarget()
-  if target then
-    -- If looting pause to prioritize targeting
-    if AutoLoot.isLooting() then
-      AutoLoot.pauseLooting()
+  local playerPos = player:getPosition()
+  local shouldChangeTarget = not target or not table.contains(targets, target) or Position.manhattanDistance(target:getPosition(), playerPos) > TargetsModule.getTargetSettingCreature(target):getMovement().range + 1
+  AutoTarget.notValidTargetCount = 0
+  if shouldChangeTarget and targets then
+    for _, t in pairs(targets) do
+      if Position.manhattanDistance(t:getPosition(), playerPos) <= TargetsModule.getTargetSettingCreature(t):getMovement().range + 1 then
+        AutoTarget.checkStance(t)
+        g_game.attack(t, true) -- second argument: ignore if it is already current target and attack it anyway
+        return Helper.safeDelay(600, 1400)
+      end
     end
-
-    AutoTarget.checkChaseMode(target)
-    AutoTarget.checkStance(target)
-
-    g_game.attack(target)
+    AutoTarget.checkStance(targets[1])
+    g_game.attack(targets[1], true)
   end
 
   -- Keep the event live

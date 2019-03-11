@@ -16,6 +16,7 @@ local selectedTarget
 local currentSetting
 local refreshEvent
 local loadListIndex
+local lootListFocusId
 local currentFileLoaded
 
 local saveOverWindow
@@ -44,6 +45,8 @@ function TargetsModule.init()
   
   TargetsModule.bindHandlers()
 
+  g_keyboard.bindKeyPress('Ctrl+Escape', TargetsModule.toggle, gameRootPanel)
+
   TargetsModule.parentUI = CandyBot.window
 
   -- setup resources
@@ -61,10 +64,14 @@ function TargetsModule.init()
   -- Event inits
   AutoTarget.init()
   AttackMode.init()
+  AutoLoot.init()
+  Movement.init()
 end
 
 function TargetsModule.terminate()
   TargetsModule.stop()
+
+  g_keyboard.unbindKeyPress('Ctrl+Escape', TargetsModule.toggle, gameRootPanel)
 
   g_keyboard.unbindKeyPress('Up', UI.TargetsPanel)
   g_keyboard.unbindKeyPress('Down', UI.TargetsPanel)
@@ -79,6 +86,14 @@ function TargetsModule.terminate()
   -- Event terminates
   AutoTarget.terminate()
   AttackMode.terminate()
+  AutoLoot.terminate()
+  Movement.terminate()
+end
+
+function TargetsModule.toggle()
+  local toggledState = not UI.AutoTarget:isChecked();
+  UI.AutoTarget:setChecked(toggledState)
+  modules.game_textmessage.displayBroadcastMessage("AutoTarget " .. (toggledState and "enabled." or "disabled."))
 end
 
 function TargetsModule.loadUI(panel)
@@ -102,12 +117,13 @@ function TargetsModule.loadUI(panel)
     SettingModeList = panel:recursiveGetChildById('SettingModeList'),
     SettingModeText = panel:recursiveGetChildById('SettingModeText'),
     SettingLoot = panel:recursiveGetChildById('SettingLoot'),
-    SettingFollow = panel:recursiveGetChildById('SettingFollow'),
+    SettingAntiKS = panel:recursiveGetChildById('SettingAntiKS'),
+    SettingDistanceBox = panel:recursiveGetChildById('SettingDistanceBox'),
     AddTargetText = panel:recursiveGetChildById('AddTargetText'),
     AddTargetButton = panel:recursiveGetChildById('AddTargetButton'),
     SaveNameEdit = panel:recursiveGetChildById('SaveNameEdit'),
     SaveButton = panel:recursiveGetChildById('SaveButton'),
-    LoadList = panel:recursiveGetChildById('LoadList'),
+    LoadList = panel:recursiveGetChildById('TargetsFile'),
     LoadButton = panel:recursiveGetChildById('LoadButton'),
     SettingModeItem = panel:recursiveGetChildById('SettingModeItem'),
     SelectModeItem = panel:recursiveGetChildById('SelectModeItem'),
@@ -121,19 +137,29 @@ function TargetsModule.loadUI(panel)
     SettingDangerBox = panel:recursiveGetChildById('SettingDangerBox'),
     SettingStrategyLabel = panel:recursiveGetChildById('SettingStrategyLabel'),
     SettingStrategyList = panel:recursiveGetChildById('SettingStrategyList'),
+    LootItemsList = panel:recursiveGetChildById('LootItemsList'),
+    LootItemCountBox = panel:recursiveGetChildById('ItemCountBox'),
+    FastLooter = panel:recursiveGetChildById('FastLooter'),
+    SettingRadiusBox = panel:recursiveGetChildById('SettingRadiusBox'),
+    BackpackList = panel:recursiveGetChildById('BackpackList'),
+    BackpackFastEdit = panel:recursiveGetChildById('BackpackFastEdit')
   }
 
   -- Setting Mode List
   UI.SettingModeList:addOption(AttackModes.None)
   UI.SettingModeList:addOption(AttackModes.SpellMode)
   UI.SettingModeList:addOption(AttackModes.ItemMode)
-
+  
   -- Stance radio group
   UI.StanceRadioGroup = UIRadioGroup.create()
   UI.StanceRadioGroup:addWidget(UI.StanceOffensiveBox)
   UI.StanceRadioGroup:addWidget(UI.StanceBalancedBox)
   UI.StanceRadioGroup:addWidget(UI.StanceDefensiveBox)
   UI.StanceRadioGroup:selectWidget(UI.StanceOffensiveBox)
+
+  for k, v in ipairs(TargetsModule.Movement.List) do
+    UI.SettingMovementList:addOption(v)
+  end
 end
 
 function TargetsModule.unloadUI()
@@ -181,6 +207,37 @@ function TargetsModule.bindHandlers()
       end
     })
 
+  connect(UI.LootItemsList, {
+    onChildFocusChange = function(self, focusedChild, unfocusedChild, reason)
+        -- if reason == ActiveFocusReason then return end
+        if focusedChild == nil then 
+          UI.LootItemCountBox:setEnabled(false)
+        else
+          local option = UI.BackpackFastEdit:getCurrentOption().text
+          local id = tonumber(focusedChild:getId())
+          local item = TargetsModule.AutoLoot.itemsList[id]
+          if AutoLoot.containers[option] then
+            item.bp = AutoLoot.containers[option].id
+            AutoLoot.updateEntry(id)
+          else
+            UI.LootItemCountBox:setEnabled(true)
+            UI.LootItemCountBox:setValue(item and item.count or -1)
+          end
+        end
+      end
+    })
+
+  connect(UI.LootItemCountBox, {
+    onValueChange = function(self, count) 
+      local child = UI.LootItemsList:getFocusedChild()
+      if child then
+        local id = child:getId()
+        if id then
+          TargetsModule.AutoLoot.addLootItem(id, count)
+        end
+      end
+    end
+  })
   connect(UI.SettingNameEdit, {
     onTextChange = function(self, text, oldText)
       if not selectedTarget then
@@ -192,24 +249,29 @@ function TargetsModule.bindHandlers()
     end
   })
 
-  connect(UI.SettingModeList, {
+  connect(UI.SettingMovementList, {
     onOptionChange = function(self, text, data)
       if selectedTarget then
         local setting = TargetsModule.getCurrentSetting()
         if setting then
-          local attack = Attack.create(text, nil, nil, 100)
-          if text == AttackModes.SpellMode then
-            local spell = Helper.getRandomVocationSpell(1, {1,4})
-            if spell then
-              attack:setWords(spell.words)
-            else
-              attack:setWords("<add spell>")
-            end
-          elseif text == AttackModes.ItemMode then
-            attack:setItem(3155)
-          end
-          setting:setAttack(attack)
+          setting:setMovementType(TargetsModule.Movement.Type[text])
+          UI.SettingDistanceBox:setEnabled(text ~= "None")
         end
+      end
+    end
+  })
+
+  connect(UI.BackpackFastEdit, {
+    onOptionChange = function(self, option) 
+      local focusedChild = UI.LootItemsList:getFocusedChild()
+      if not focusedChild then
+        return
+      end
+      local id = tonumber(focusedChild:getId())
+      local item = TargetsModule.AutoLoot.itemsList[id]
+      if AutoLoot.containers[option] then
+        item.bp = AutoLoot.containers[option].id
+        AutoLoot.updateEntry(id)
       end
     end
   })
@@ -233,6 +295,30 @@ function TargetsModule.bindHandlers()
     end 
   })
 
+
+  connect(UI.SettingModeList, {
+    onOptionChange = function(self, text, data)
+      if selectedTarget then
+        local setting = TargetsModule.getCurrentSetting()
+        if setting then
+          local attack = Attack.create(text, nil, nil, 100)
+          if text == AttackModes.SpellMode then
+            local spell = Helper.getRandomVocationSpell(1, {1,4})
+            if spell then
+              attack:setWords(spell.words)
+            else
+              attack:setWords("<add spell>")
+            end
+          elseif text == AttackModes.ItemMode then
+            attack:setItem(3155)
+          end
+          setting:setAttack(attack)
+          UI.SettingRadiusBox:setEnabled(text ~= AttackModes.None)
+        end
+      end
+    end
+  })
+
   g_keyboard.bindKeyPress('Up', function() 
       UI.TargetList:focusPreviousChild(KeyboardFocusReason) 
     end, UI.TargetsPanel)
@@ -253,8 +339,10 @@ function TargetsModule.onStopEvent(eventId)
 end
 
 function TargetsModule.onNotify(key, state)
-  if key == "LoadList" then
+  if key == UI.LoadList:getId() then
     TargetsModule.loadTargets(state, true)
+  elseif key == 'BackpackList' then
+    AutoLoot.onChangeContainersList()
   end
 end
 
@@ -292,7 +380,7 @@ end
 
 function TargetsModule.addNewTarget(name)
   if not TargetsModule.hasTarget(name) then
-    local target = Target.create(name, 1, {})
+    local target = Target.create(name, {})
 
     TargetsModule.addTarget(target)
 
@@ -313,18 +401,31 @@ function TargetsModule.addTarget(target)
       onNameChange = function(target, name, oldName)
         local item = TargetsModule.getTargetListItem(target)
         if item then item:setText(name) end
-      end
-    })
+      end,
 
-    connect(target, {
-      onPriorityChange = function(target, priority, oldPriority)
-        BotLogger.debug("["..target:getName().."] Priority Changed: " .. priority)
-      end
-    })
-
-    connect(target, {
       onLootChange = function(target, loot)
         BotLogger.debug("["..target:getName().."] Loot Changed: " .. tostring(loot))
+      end,
+
+      onAntiKSChange = function(target, AntiKS)
+        BotLogger.debug("["..target:getName().."] Anti-KS Changed: " .. tostring(AntiKS))
+      end,
+
+      onAddSetting = function(target, setting)
+        if selectedTarget == target then
+          TargetsModule.setCurrentSetting(setting)
+        end
+      end,
+
+      onRemoveSetting = function(target, setting)
+        if selectedTarget == target then
+          local newSetting = target:getSetting(setting:getIndex()) or target:getSetting(setting:getIndex() - 1)
+          if not newSetting then
+            newSetting = TargetSetting.create()
+            TargetsModule.addTargetSetting(target, newSetting)
+          end
+          TargetsModule.setCurrentSetting(newSetting)
+        end
       end
     })
 
@@ -351,9 +452,9 @@ end
 
 function TargetsModule.connectSetting(target, setting)
   connect(setting, {
-    onMovementChange = function(setting, movement, oldMovement)
-      local target = setting:getTarget()
-      BotLogger.debug("["..target:getName().."]["..setting:getIndex().."] Movement Changed: " .. tostring(movement))
+    onMovementChange = function(setting, movement)
+      local setting = TargetsModule.getCurrentSetting()
+      BotLogger.info("["..target:getName().."]["..setting:getIndex().."] Movement Changed: " .. (Movement.List[movement.type]) .. ' #' .. tostring(movement.range))
     end
   })
 
@@ -383,8 +484,16 @@ function TargetsModule.connectSetting(target, setting)
   connect(setting, {
     onRangeChange = function(setting, range, oldRange, index)
       local target = setting:getTarget()
-      BotLogger.debug("["..target:getName().."]["..setting:getIndex().."] Range"..(index and "["..index.."]" 
+      BotLogger.info("["..target:getName().."]["..setting:getIndex().."] Range"..(index and "["..index.."]" 
         or "").." Changed: "..tostring(range))
+    end
+  })
+
+  connect(setting, {
+    onPriorityChange = function(setting, priority, oldPriority, index)
+      local priority = setting:getPriority()
+      BotLogger.debug("["..setting:getTarget():getName().."]["..setting:getIndex().."] Priority"..(index and "["..index.."]" 
+        or "").." Changed: "..tostring(priority))
     end
   })
 
@@ -398,7 +507,6 @@ function TargetsModule.connectSetting(target, setting)
   connect(setting, {
     onFollowChange = function(setting, follow, oldFollow)
       BotLogger.debug("["..target:getName().."]["..setting:getIndex().."] Follow Changed: " .. tostring(follow))
-      AutoTarget.checkChaseMode(g_game.getAttackingCreature())
     end
   })
 
@@ -470,23 +578,32 @@ function TargetsModule.clearTargetList()
       TargetsModule.removeTarget(t:getText())
     end
   end
+  for id, v in pairs(TargetsModule.AutoLoot.itemsList) do
+    AutoLoot.deleteLootItem(id)
+  end
 end
 
 function TargetsModule.syncSetting()
   if selectedTarget then
     UI.SettingNameEdit:setText(selectedTarget:getName(), true)
     UI.SettingLoot:setChecked(selectedTarget:getLoot())
+    UI.SettingAntiKS:setChecked(selectedTarget:getAntiKS())
 
     if currentSetting then
+      UI.TargetSettingNumber:setText('#'..currentSetting:getIndex()..' of ' .. #selectedTarget:getSettings());
       UI.SettingHpRange1:setText(currentSetting:getRange(1), true)
       UI.SettingHpRange2:setText(currentSetting:getRange(2), true)
-      UI.SettingFollow:setChecked(currentSetting:getFollow())
+      UI.SettingDangerBox:setValue(currentSetting:getPriority())
+      UI.SettingDistanceBox:setValue(currentSetting:getMovement().range)
+      UI.SettingDistanceBox:setEnabled(currentSetting:getMovement().type ~= Movement.None)
 
       UI.SettingLoot:setEnabled(true)
-      UI.SettingFollow:setEnabled(true)
+      UI.SettingAntiKS:setEnabled(true)
+      UI.SettingDistanceBox:setEnabled(true)
       UI.SettingModeList:setEnabled(true)
       UI.SettingStrategyList:setEnabled(true)
       UI.SettingMovementList:setEnabled(true)
+      UI.SettingMovementList:setCurrentIndex(currentSetting:getMovement().type, true)
       UI.SettingDangerBox:setEnabled(true)
       UI.SettingHpRange1:setEnabled(true)
       UI.SettingHpRange2:setEnabled(true)
@@ -504,15 +621,17 @@ function TargetsModule.syncSetting()
         TargetsModule.syncAttackSetting(attack)
       else
         UI.SettingModeText:setVisible(false)
-        UI.SettingModeList:setCurrentOption("No Mode", true)
+        UI.SettingModeList:setCurrentIndex(1, true)
+        UI.SettingRadiusBox:setEnabled(false)
       end
     end
   else
+    UI.TargetSettingNumber:setText('#1 of 1');
     UI.SettingNameEdit:setText("", true)
     UI.SettingHpRange1:setText("100", true)
     UI.SettingHpRange2:setText("0", true)
-    UI.SettingLoot:setChecked(false)
-    UI.SettingFollow:setChecked(false)
+    UI.SettingDangerBox:setValue(0)
+    UI.SettingDistanceBox:setValue(1)
     UI.SettingModeText:setHeight(1)
     UI.SettingModeText:setVisible(false)
     UI.SettingModeItem:setHeight(1)
@@ -520,12 +639,18 @@ function TargetsModule.syncSetting()
     UI.SelectModeItem:setHeight(1)
     UI.SelectModeItem:setVisible(false)
     UI.SettingModeList:setCurrentOption("No Mode", true)
+    UI.SettingLoot:setChecked(true)
+    UI.SettingAntiKS:setChecked(true)
 
     UI.SettingLoot:setEnabled(false)
-    UI.SettingFollow:setEnabled(false)
+    UI.SettingAntiKS:setEnabled(false)
+    UI.SettingDistanceBox:setEnabled(false)
     UI.SettingModeList:setEnabled(false)
     UI.SettingStrategyList:setEnabled(false)
+
     UI.SettingMovementList:setEnabled(false)
+    UI.SettingMovementList:setCurrentIndex(1, true)
+
     UI.SettingDangerBox:setEnabled(false)
     UI.SettingHpRange1:setEnabled(false)
     UI.SettingHpRange2:setEnabled(false)
@@ -535,6 +660,7 @@ function TargetsModule.syncSetting()
     UI.NewSettingButton:setEnabled(false)
     UI.NextSettingButton:setEnabled(false)
     UI.PrevSettingButton:setEnabled(false)
+    UI.SettingRadiusBox:setEnabled(false)
   end
 end
 
@@ -550,6 +676,8 @@ end
 
 function TargetsModule.syncAttackSetting(attack)
   UI.SettingModeList:setCurrentOption(attack:getType(), true)
+  UI.SettingRadiusBox:setEnabled(attack:getType() ~= AttackModes.None)
+  UI.SettingRadiusBox:setValue(attack:getRadius())
 
   -- spell mode setup
   if attack:getWords() ~= "" then
@@ -595,10 +723,35 @@ function TargetsModule.getSelectedTarget()
   return selectedTarget
 end
 
+function TargetsModule.getAttackingCreatureSetting()
+  local creature = g_game.getAttackingCreature()
+  return creature and TargetsModule.getTargetSettingCreature(creature) or nil
+end
+
+function TargetsModule.getTargetSettingCreature(creature)
+  local target = creature and TargetsModule.getTarget(creature:getName())
+  if not target then
+    return nil
+  end
+  for _, setting in pairs(target:getSettings()) do
+    if setting:getRange(2) <= creature:getHealthPercent() and setting:getRange(1) >= creature:getHealthPercent() then
+      return setting
+    end
+  end
+  return nil
+end
+
 function TargetsModule.getTarget(name)
   for _,child in pairs(UI.TargetList:getChildren()) do
     local t = child.target
-    if t and t:getName() == name then return t end
+    if t and name and name:match(t:getName()) then return t end
+  end
+end
+
+function TargetsModule.getTargetIndex(name)
+  for key,child in pairs(UI.TargetList:getChildren()) do
+    local t = child.target
+    if t and t:getName() == name then return key end
   end
 end
 
@@ -677,8 +830,6 @@ function TargetsModule.saveTargets(file)
       
       saveOverWindow:destroy()
       saveOverWindow=nil
-
-      UI.SaveNameEdit:setText("")
     end
 
     local noCallback = function()
@@ -693,8 +844,6 @@ function TargetsModule.saveTargets(file)
   else
     config = g_configs.create(path)
     writeTargets(config)
-
-    UI.SaveNameEdit:setText("")
   end
 
   local formatedFile = file..".otml"
@@ -707,7 +856,6 @@ function TargetsModule.loadTargets(file, force)
   BotLogger.debug("TargetsModule.loadTargets("..file..")")
   local path = targetsDir.."/"..file
   local config = g_configs.load(path)
-  BotLogger.debug("TargetsModule"..tostring(config))
   if config then
     local loadFunc = function()
       TargetsModule.clearTargetList()
@@ -717,7 +865,6 @@ function TargetsModule.loadTargets(file, force)
         if target then TargetsModule.addTarget(target) end
       end
       UI.TargetList:focusNextChild()
-      UI.AutoTarget:setChecked(true)
       
       if not force then
         currentFileLoaded = file
@@ -751,7 +898,6 @@ function TargetsModule.loadTargets(file, force)
 end
 
 -- local functions
-
 function writeTargets(config)
   if not config then return end
 
@@ -762,6 +908,9 @@ function writeTargets(config)
     targets[v:getName()] = v:toNode()
   end
   config:setNode('Targets', targets)
+  if TargetsModule.AutoLoot then
+    config:setNode('Loot', TargetsModule.AutoLoot.itemsList)
+  end
   config:save()
 
   BotLogger.debug("Saved "..tostring(#targetObjs) .." targets to "..config:getFileName())
@@ -779,6 +928,17 @@ function parseTargets(config)
     target:parseNode(v)
     targets[index] = target
     index = index + 1
+  end
+
+  for k, v in pairs(config:getNode("Loot")) do
+    if type(v) ~= 'table' then
+      TargetsModule.AutoLoot.addLootItem(k, tonumber(v))
+    else
+      for a,b in pairs(v) do
+        v[a] = tonumber(b)
+      end
+      TargetsModule.AutoLoot.addLootItem(k, v.count, v.bp)
+    end
   end
 
   return targets

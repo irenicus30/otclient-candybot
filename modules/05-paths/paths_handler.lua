@@ -19,17 +19,18 @@ PathsModule.dependencies = {
 
 PathsModule.options = {
   ['AutoPath'] = false,
+  ['PathsFile'] = '',
   ['SmartPath'] = false
 }
 
 --[[ Register Events ]]
 
 table.merge(PathsModule, {
-  autoPath = 1
+  autoPathEvent = 1
 })
 
 PathsModule.events = {
-  [PathsModule.autoPath] = {
+  [PathsModule.autoPathEvent] = {
     option = "AutoPath", 
     callback = PathsModule.AutoPath.Event
   }
@@ -38,7 +39,8 @@ PathsModule.events = {
 --[[ Register Listeners ]]
 
 table.merge(PathsModule, {
-  smartPath = 1
+  smartPath = 1,
+  autoPathListener = 2
 })
 
 PathsModule.listeners = {
@@ -46,6 +48,11 @@ PathsModule.listeners = {
     option = "SmartPath", 
     connect = PathsModule.SmartPath.ConnectListener, 
     disconnect = PathsModule.SmartPath.DisconnectListener
+  },
+  [PathsModule.autoPathListener] = {
+    option = "AutoPath", 
+    connect = PathsModule.AutoPath.ConnectListener, 
+    disconnect = PathsModule.AutoPath.DisconnectListener
   }
 }
 
