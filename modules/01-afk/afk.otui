@@ -135,6 +135,7 @@ Panel
     options:
       - Left Hand
       - Right Hand
+      - Ammunition
 
   Item
     id: ItemToReplace
