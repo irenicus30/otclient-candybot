@@ -131,7 +131,7 @@ function AutoLoot.lootNext()
     end
     AutoLoot.lootProc = LootProcedure.create(data.creatureId, 
       data.loot.position, data.loot.corpse, isAttacking and 30000, AutoLoot.itemsList, 
-      g_game.getContainers(), TargetsModule.getUI().FastLooter:isChecked())
+      g_game.getContainers(), TargetsModule.getUI().FastLooter:isChecked(), true)
     
     -- Loot procedure finished
     connect(AutoLoot.lootProc, { onFinished = function(id)

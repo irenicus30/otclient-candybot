@@ -8,7 +8,7 @@ end
 
 LootProcedure = extends(Procedure, "LootProcedure")
 
-LootProcedure.create = function(id, position, corpse, timeoutTicks, itemsList, containersList, fastLooting)
+LootProcedure.create = function(id, position, corpse, timeoutTicks, itemsList, containersList, fastLooting, eating)
   local proc = LootProcedure.internalCreate()
 
   proc:setId(id) -- used for creature id
@@ -39,6 +39,7 @@ LootProcedure.create = function(id, position, corpse, timeoutTicks, itemsList, c
   proc.itemsList = itemsList
   proc.containersList = containersList
   proc.fast = fastLooting
+  proc.eating = eating
 
   return proc
 end
@@ -172,6 +173,7 @@ function LootProcedure:loot(container) -- it is most probably this container
   local items = container:getItems()
   local cid = container:getId()
   self.containerThingsToDo[cid] = 0
+  self.containerToEatFrom = container
   for i = #items, 1, -1 do
     local item = items[i]
     if self:shouldLootItem(item) then
@@ -197,6 +199,9 @@ function LootProcedure:loot(container) -- it is most probably this container
   -- start taking the items
   if not self.isLooting then
     self.isLooting = true
+    if self.eating then
+      self:eatFromCorpse()
+    end
     self:takeNextItem()
   end
   return true
@@ -230,6 +235,22 @@ function LootProcedure:removeItem(id, pos)
     if i:getId() == id and Position.equals(i:getPosition(), pos) then
       table.remove(self.items, k)
     end
+  end
+end
+
+function LootProcedure:eatFromCorpse()
+  BotLogger.debug("Eat from corpse procedure")
+  if self.containerToEatFrom then
+    local items = self.containerToEatFrom:getItems()
+    for i, item in pairs(items) do
+      for j, food in pairs(Foods) do
+        if item:getId()==food then
+          g_game.use(item)
+          BotLogger.debug("Eating item "..food.." from corpse")
+        end
+      end
+    end
+    self.containerToEatFrom = nil
   end
 end
 
